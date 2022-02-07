@@ -120,7 +120,8 @@ class ZPulse:
         return waveform
     
     
-    def waveform_cphase (self, t_start_cphase = None, t_finish_cphase = None, offset = None):
+    def waveform_cphase (self, t_start = None, t_finish = None, offset = None):
+        params = self._params
         if t_start is None:
             t_start = params["start_cphase"]  
         if t_finish is None:

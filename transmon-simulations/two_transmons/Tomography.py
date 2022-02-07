@@ -34,7 +34,7 @@ class Tomography:
         self._Ts = Ts
         self._params = params
         self._r = readout_resonator
-        self._options = Options(nsteps=20000, store_states=True, max_step = 1e-3)
+        self._options = Options(nsteps=20000, store_states=True, max_step = 1e-2)
         self._c_ops = [] #self._dts.c_ops(0, 1 / 2)
         #self._pi_duration = 33.45 # don't touch
         #self._drive_amplitude = 0.01*2*pi/2*3 # don't touch
@@ -115,12 +115,14 @@ class Tomography:
             #self._rho_prepared_states.append(rotation.dag()*self._rho0*rotation) #base states for maximum likelihood estimation
         d = 4
         self._PP = np.empty((d**2,36,d**2,d,d),dtype = complex) # pre-calculation of matrices in operator decomposition
+        self._PP_identity = np.empty((d**2, d**2,d,d),dtype = complex)
         
         self._rho_prepared_full = array ([rho.full() for rho in self._rho_prepared_states]) # 3*3 matrix
         self._rho_prepared_full_trunc = array ([Tomography.rho3dim_to_rho(rho).full() for rho in self._rho_prepared_states]) # 2*2 matrix
         for j in range (d**2):
             for i in range (len(self._rho_prepared_states)):
                 for k in range (d**2):
+                    self._PP_identity[j,k] = dot(self._pauli_mat_2qubits[j], self._pauli_mat_2qubits[k])                 
                     self._PP[j,i,k] = dot(dot(self._pauli_mat_2qubits[j],self._rho_prepared_full_trunc[i]),self._pauli_mat_2qubits[k])
                     
                     
@@ -174,7 +176,12 @@ class Tomography:
         return dm_interaction
     
    # def build_waveforms_cphase(self)
-    
+    def build_waveforms_cphase (self):
+        signal = ZPulse(self._Ts, self._params)
+        waveform1 = signal.waveform_cphase() 
+        waveform2 = self._params['phi2z_base_level']*ones_like(waveform1)
+        return waveform1, waveform2
+        
     def build_waveforms_4iswap(self):
         waveform1 = ZPulse(self._Ts, self._params).waveform_4iswap()
         #waveform1 = ones_like(self._Ts)*0
@@ -235,17 +242,20 @@ class Tomography:
 
        
        
-    def run_iswap_test (self, iswap2 = False, num_cpus = 24):
+    def run_iswap_test (self, cphase = False,iswap2 = False, num_cpus = 24):
         self._results_iswap_test = []  
-        self._results_iswap_test = p_map(self.run_iswap_test_step_parallel, self._2q_rotations, [iswap2]*len(self._2q_rotations),\
+        self._results_iswap_test = p_map(self.run_iswap_test_step_parallel, self._2q_rotations, [cphase]*len(self._2q_rotations),\
+                                         [iswap2]*len(self._2q_rotations),[False]*len(self._2q_rotations),\
                                          [False]*len(self._2q_rotations), num_cpus = num_cpus)
     
     
-    def run_iswap_test_step_parallel (self, rotations, iswap2 = False, constant_flows = False, full_output = False): #возвращает матрицу плотности после гейта в                                                                                                    представлении вз-я
+    def run_iswap_test_step_parallel (self, rotations, cphase = False, iswap2 = False, constant_flows = False, full_output = False): #возвращает матрицу плотности после гейта в                                                                                                    представлении вз-я
         dur1, dur2 = rotations[0][0], rotations[1][0]
         phi1, phi2 = rotations[0][1], rotations[1][1]
         if iswap2 :
             waveform1, waveform2 = self.build_waveforms_2iswap()
+        elif cphase:
+            waveform1, waveform2 = self.build_waveforms_cphase()
         elif constant_flows:
             waveform1, waveform2 = self.build_const_waveforms()
         else:
@@ -418,6 +428,15 @@ class Tomography:
         #rho_predicted = self._find_rho_iswap(5,dm_final).full()
         return (Tomography.rho3dim_to_rho(dm_final), rho_ideal)
     
+    def find_cphase_rotation_matrix (self, number, phase):
+        rho_initial = Tomography.rho3dim_to_rho(self._rho_prepared_full[number])
+        cphase_matrix = array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,exp(1j*phase)]])
+        rho_ideal =dot(cphase_matrix,dot(rho_initial, cphase_matrix.transpose().conj())) 
+        dm_final = self.run_iswap_test_step_parallel(self._2q_rotations[number], cphase = True, full_output = False)
+        #rho_predicted = self._find_rho_iswap(5,dm_final).full()
+        return (Tomography.rho3dim_to_rho(dm_final), rho_ideal)        
+        
+    
     def find_iswap2_rotation_matrix (self,number):
         rho_initial = Tomography.rho3dim_to_rho(self._rho_prepared_full[number])
         iswap2_matrix = array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,1]])
@@ -470,6 +489,7 @@ class Tomography:
         #likelihood_par = partial(Tomography._likelihood_1_iter,self,x)
         #lh_array = p_map(likelihood_par, density_matrix_after_gate, range(len( density_matrix_after_gate)))
         operator = np.tensordot(chi, self._PP, ((0,1),(0,2)))
+        lh += norm( np.tensordot (chi, self._PP_identity, ((0,1),(0,1)) )  - np.identity(4), ord = 'fro')
         for ind, rho_final in enumerate (density_matrix_after_gate):
             delta_rho = rho_final - operator[ind]
             lh += norm(delta_rho, ord = 'fro')
@@ -870,6 +890,16 @@ class Tomography:
         		image = dot(iswap_ideal,dot(pauli[j],iswap_ideal.transpose().conj()))
         		R_ideal[i][j]=1/4*np.trace(dot(pauli[i], image))
     	return R_ideal
+    def get_R_cphase_ideal (self, phi):
+    	pauli = self._pauli_mat_2qubits
+    	cphase_ideal = np.array ([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,exp(1j*phi)]])
+    	R_ideal = np.empty((16,16))
+    	for i in range (16):
+    		for j in range (16):
+        		image = dot(cphase_ideal,dot(pauli[j],cphase_ideal.transpose().conj()))
+        		R_ideal[i][j]=1/4*np.trace(dot(pauli[i], image))
+    	return R_ideal
+    
     def get_R_2iswap_phi (self, phi):
     	pauli = self._pauli_mat_2qubits
     	iswap2_phi = np.array ([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,exp(-2j*phi)]])
@@ -909,11 +939,13 @@ class Tomography:
         return fidelity
     
     
-    def fidelity_function_zgate (self, params, number, iswap2): # error of i-swap for pi/2 Y 2nd qubit rotation 
+    def fidelity_function_zgate (self, params, number, iswap2, cphase): # error of i-swap for pi/2 Y 2nd qubit rotation 
                                                    #its necessary to find additional phase of first qubit
         self._params = params
         if iswap2:
             rho_predicted, rho_ideal = self.find_iswap2_rotation_matrix(number)
+        elif cphase:
+            rho_predicted, rho_ideal = self.find_cphase_rotation_matrix(number)            
         else:    
             rho_predicted, rho_ideal = self.find_iswap_rotation_matrix(number)
         return Tomography.state_fidelity(rho_ideal, rho_predicted)

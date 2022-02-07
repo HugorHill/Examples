@@ -34,6 +34,28 @@ class TransmonChain:
 
         self._low_energy_states = []
         self._low_energy_state_indices = []
+        
+    def set_e_ops(self):
+        sigma_z_chain = []
+        sigma_x_chain = []
+        sigma_y_chain = []
+        for i in range (self._length): #TO DO - вынести в функцию класса
+            sigma_z = self._transmons[i].sz()
+            sigma_x = self._transmons[i].sx()
+            sigma_y = self._transmons[i].sy()
+            oper_z = self._identity_array.copy()
+            oper_z[i]=sigma_z
+            oper_x = self._identity_array.copy()
+            oper_x[i]=sigma_x
+            oper_y = self._identity_array.copy()
+            oper_y[i]=sigma_y
+            sigma_z_chain.append(self.truncate_to_low_population_subspace(tensor(*oper_z)))
+            sigma_x_chain.append(self.truncate_to_low_population_subspace(tensor(*oper_x)))
+            sigma_y_chain.append(self.truncate_to_low_population_subspace(tensor(*oper_y)))
+        self.e_ops = sigma_z_chain + sigma_x_chain + sigma_y_chain
+        
+
+        
 
     def clear_caches(self):
         self._RWA_driving_cache = {}
@@ -90,9 +112,10 @@ class TransmonChain:
             chain_operator_rel = self._identity_array.copy()
             chain_operator_rel[i] = self._transmons[i].c_ops(0)[0]
             chain_operator_deph = self._identity_array.copy()
+            
             chain_operator_deph[i] = self._transmons[i].c_ops(0)[1]
-            self._c_ops.append(tensor(*chain_operator_rel))
-            self._c_ops.append(tensor(*chain_operator_deph))
+            self._c_ops.append(self.truncate_to_low_population_subspace(tensor(*chain_operator_rel)))
+            self._c_ops.append(self.truncate_to_low_population_subspace(tensor(*chain_operator_deph)))
         return self._c_ops
 
     def truncate_to_low_population_subspace(self, operator):
@@ -151,18 +174,10 @@ class TransmonChain:
     def plot_chain_dynamic(self, result):
         Ts = self._Ts
         fig, axes = subplots (3,1, figsize = (7,6))
-        axes[0].plot(Ts, result.expect[0], label = 'z1',)
-        axes[0].plot(Ts, result.expect[1], label = 'z2')
-        axes[0].plot(Ts, result.expect[2], label = 'z3')
-        axes[0].plot(Ts, result.expect[3], label = 'z4')
-        axes[1].plot(Ts, result.expect[4], label = 'x1')
-        axes[1].plot(Ts, result.expect[5], label = 'x2')
-        axes[1].plot(Ts, result.expect[6], label = 'x3')
-        axes[1].plot(Ts, result.expect[7], label = 'x4')
-        axes[2].plot(Ts, result.expect[8], label = 'y1')
-        axes[2].plot(Ts, result.expect[9], label = 'y2')
-        axes[2].plot(Ts, result.expect[10], label = 'y3')
-        axes[2].plot(Ts, result.expect[11], label = 'y4')
+        labels = ['z', 'x', 'y']
+        for ind in range (3):            
+            for i in range (self._length):
+                axes[ind].plot(Ts, result.expect[i + ind*self._length], label = labels[ind] + str(i))       
         for ax in axes:
             ax.set_ylim((-1.05,1.05))
             ax.legend()

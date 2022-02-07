@@ -87,10 +87,12 @@ def cook_farg(Nphi,freq):
     phis = linspace(0.44, 0.52, Nphi)
     params = {
         'duration': 47.0*5, #vaccuum rabi time, derived from simulation
+        'duration_cphase': 350.8,
         #'tanh_sigma': 0.1,
         'tanh_sigma': 0.5,
         "start": 200, #200
-        "finish": 550, #300
+        "start_cphase": 200,
+        "finish": 1000, #300
         "phi_base_level": 0.4479,
         #'phi_offset': 0.4779,
         'phi_offset': 0.03 + 0.00003,
@@ -102,12 +104,12 @@ def cook_farg(Nphi,freq):
         
         #"phiz_offset" : 0.1,
         "phiz_offset" : -0.01,
-        "phi2z_base_level" :0.5,
+        "phi2z_base_level": 0.5,
         "phi2z_offset" : 0.03,
         #"phi2z_offset" : -0.05,
         "frequency": freq,
-        "phi_offset_cphase":0.4425,
-        "start_cphase": 180,
+        "phi_offset_cphase":0.453894-0.4479,
+        "start_cphase": 200,
         "finish_cphase": 200,
         'drive_amplitude':0.01*2*pi/2*3/5
     }
